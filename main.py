@@ -1,9 +1,8 @@
 import discord
-import random
 import requests
 from discord.ext import commands
 from decouple import config
-
+from utils.roll import roll_dice
 
 TOKEN = config("DISCORD_TOKEN")
 
@@ -70,8 +69,77 @@ async def roll(ctx, *, args: str):
     except ValueError:
         await ctx.send("Comando inválido.")
         return
-    results = [random.randint(1, x) for _ in range(n)]
+    results = roll_dice(n, x)
     await ctx.send(f"`{sum(results)}` -> ({', '.join(str(x) for x in results)})")
+
+
+@bot.command(name="spell")
+async def spell(ctx, *, args: str):
+    print("Starting DnD API request...")
+    dnd_api_url = f"http://localhost:8000/api/spells/{args}"
+    response = requests.get(dnd_api_url)
+    print(f"DnD API {response.status_code}")
+
+    if response.status_code != 200:
+        await ctx.send("DnD API retornou um erro.")
+        return
+
+    elif response.status_code == 200:
+        spell = response.json()
+
+        nome_magia = spell["name"]
+        descricao_magia = spell["desc"][0]
+
+        embed = discord.Embed(
+            title=f"✨ {nome_magia.capitalize()}",
+            description=descricao_magia,
+        )
+        embed.add_field(name="🔹 Nível", value=f"{spell["level"]}° nível", inline=True)
+        embed.add_field(name="🔹 Escola", value=spell["school"]["name"], inline=True)
+        embed.add_field(
+            name="🔹 Tempo de Conjuração",
+            value=spell["casting_time"],
+            inline=False,
+        )
+        embed.add_field(name="🔹 Alcance", value=spell["range"], inline=True)
+        embed.add_field(
+            name="🔹 Componentes",
+            value=f"{', '.join(str(x) for x in spell["components"])}",
+            inline=True,
+        )
+        embed.add_field(name="🔹 Duração", value=spell["duration"], inline=True)
+
+        if "damage" in spell:
+            spell_damage_dice = spell["damage"]["damage_at_slot_level"][
+                f"{spell['level']}"
+            ]
+            n, x = spell_damage_dice.split("d")
+            total_damage = roll_dice(int(n), int(x))
+            embed.add_field(
+                name="🔥 Dano Causado",
+                value=f" `{sum(total_damage)} de dano de {spell['damage']['type']['name']}` ({', '.join(str(x) for x in total_damage)})",
+                inline=False,
+            )
+
+        if "heal_at_slot_level" in spell:
+            spell_heal_dice = spell["heal_at_slot_level"][f"{spell['level']}"]
+            if "d" in spell_heal_dice:
+                n, x = spell_heal_dice.split("d")
+                total_heal = roll_dice(int(n), int(x))
+                embed.add_field(
+                    name="❤️ Cura",
+                    value=f" `{sum(total_heal)} de cura` ({', '.join(str(x) for x in total_heal)})",
+                    inline=False,
+                )
+            else:
+                total_heal = [int(spell_heal_dice)]
+                embed.add_field(
+                    name="❤️ Cura",
+                    value=f" `{sum(total_heal)} de cura`",
+                    inline=False,
+                )
+
+    await ctx.send(embed=embed)
 
 
 bot.run(TOKEN)
